@@ -5,21 +5,23 @@ from datetime import date, timedelta
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Input, RichLog, Static
 
 from planner.agent import PlannerAgent
 from planner.db import EventStore, week_start
 from planner.history import HistoryScreen
 from planner.status import StatusBar, format_usage
-from planner.views import render_day, render_week
+from planner.task_info import TaskInfoPanel
+from planner.views import render_agenda, render_day, render_week
 
 HELP_TEXT = (
     "[bold]Hotkeys[/bold]  "
-    "[cyan]w[/]=week  [cyan]d[/]=day  "
+    "[cyan]w[/]=week  [cyan]d[/]=day  [cyan]a[/]=agenda  "
     "[cyan]←[/] prev  [cyan]→[/] next  "
+    "[cyan]Tab[/]/[cyan]Shift+Tab[/] day  "
     "[cyan]t[/]=today  [cyan]i[/]=focus chat  "
-    "[cyan]Esc[/]=unfocus chat  [cyan]h[/]=history  "
+    "[cyan]Esc[/]=unfocus chat  [cyan]p[/]=projects  [cyan]h[/]=history  "
     "[cyan]?[/]=help  [cyan]q[/]=quit"
 )
 
@@ -47,11 +49,99 @@ class CalendarView(Static):
 
     def refresh_view(self) -> None:
         if self.mode == "week":
-            events_ = self.store.list_week(week_start(self.anchor))
-            self.update(render_week(self.anchor, events_))
-        else:
+            from datetime import datetime, time, timedelta
+            monday = week_start(self.anchor)
+            events_ = self.store.list_week(monday)
+            wk_start = datetime.combine(monday, time.min)
+            wk_end = wk_start + timedelta(days=7)
+            sessions_week = self.store.list_sessions(start=wk_start, end=wk_end)
+            now = datetime.now()
+            # For each session, split into per-day chunks (clamped to the
+            # week window) and accumulate minutes per (date, task_id).
+            per_day_task: dict = {}
+            for sess in sessions_week:
+                s_start = max(sess.start, wk_start)
+                s_end = min(sess.end or now, wk_end)
+                cur = s_start
+                while cur < s_end:
+                    d = cur.date()
+                    day_end = min(
+                        s_end,
+                        datetime.combine(d + timedelta(days=1), time.min),
+                    )
+                    mins = max(0, int((day_end - cur).total_seconds() // 60))
+                    if mins:
+                        per_day_task.setdefault(d, {}).setdefault(sess.task_id, 0)
+                        per_day_task[d][sess.task_id] += mins
+                    cur = day_end
+            worked_by_day = {}
+            for d, by_task in per_day_task.items():
+                items = []
+                for tid, mins in by_task.items():
+                    t = self.store.get_task(tid)
+                    if t is not None:
+                        items.append((t, mins))
+                items.sort(key=lambda x: -x[1])
+                worked_by_day[d] = items
+            self.update(render_week(self.anchor, events_, worked_by_day))
+        elif self.mode == "day":
             events_ = self.store.list_day(self.anchor)
             self.update(render_day(self.anchor, events_))
+        else:  # agenda
+            from datetime import datetime, time, timedelta
+
+            events_ = self.store.list_day(self.anchor)
+            tasks_day = self.store.list_tasks(scheduled_on=self.anchor)
+            projects = {p.id: p for p in self.store.list_projects(include_archived=True)}
+
+            day_start = datetime.combine(self.anchor, time.min)
+            day_end = day_start + timedelta(days=1)
+            sessions_today = self.store.list_sessions(start=day_start, end=day_end)
+            sessions_by_task: dict[int, list] = {}
+            for sess in sessions_today:
+                sessions_by_task.setdefault(sess.task_id, []).append(sess)
+
+            # Backlog rules:
+            #  - On today: show the full open backlog (tasks with no
+            #    scheduled_for) — it's your "what to pick up next" list.
+            #  - On other days: show ONLY unscheduled tasks that were
+            #    actually worked on that day, so their session times are
+            #    visible without polluting every day with unrelated tasks.
+            if self.anchor == date.today():
+                backlog = [
+                    t for t in self.store.list_tasks(include_done=False)
+                    if t.scheduled_for is None
+                ]
+                shown_ids = {t.id for t in tasks_day} | {t.id for t in backlog}
+                for tid in sessions_by_task:
+                    if tid in shown_ids:
+                        continue
+                    t = self.store.get_task(tid)
+                    if t is not None and t.scheduled_for is None:
+                        backlog.append(t)
+            else:
+                backlog = []
+                scheduled_ids = {t.id for t in tasks_day}
+                for tid in sessions_by_task:
+                    if tid in scheduled_ids:
+                        continue
+                    t = self.store.get_task(tid)
+                    if t is not None and t.scheduled_for is None:
+                        backlog.append(t)
+
+            ongoing_rows = []
+            for sess in self.store.list_sessions(ongoing_only=True):
+                task = self.store.get_task(sess.task_id)
+                if task is not None:
+                    proj = projects.get(task.project_id)
+                    ongoing_rows.append((sess, task, proj))
+
+            self.update(
+                render_agenda(
+                    self.anchor, events_, tasks_day, backlog,
+                    ongoing_rows, projects, sessions_by_task,
+                )
+            )
 
     def set_mode(self, mode: str) -> None:
         self.mode = mode
@@ -60,6 +150,18 @@ class CalendarView(Static):
     def step(self, direction: int) -> None:
         days = 7 if self.mode == "week" else 1
         self.anchor = self.anchor + timedelta(days=direction * days)
+        self.refresh_view()
+
+    def shift_anchor(self, direction: int) -> None:
+        """Move anchor by 1 day, wrapping within the current week.
+
+        Sunday + Tab → Monday of the same week.
+        Monday + Shift+Tab → Sunday of the same week.
+        Use ← / → to cross into adjacent weeks.
+        """
+        monday = week_start(self.anchor)
+        new_weekday = (self.anchor.weekday() + direction) % 7
+        self.anchor = monday + timedelta(days=new_weekday)
         self.refresh_view()
 
     def go_today(self) -> None:
@@ -74,10 +176,14 @@ class PlannerApp(App):
     BINDINGS = [
         Binding("w", "view_week", "Week"),
         Binding("d", "view_day", "Day"),
+        Binding("a", "view_agenda", "Agenda"),
         Binding("left", "prev", "Prev"),
         Binding("right", "next", "Next"),
+        Binding("tab", "next_day", "Next day", priority=True, show=False),
+        Binding("shift+tab", "prev_day", "Prev day", priority=True, show=False),
         Binding("t", "today", "Today"),
         Binding("i", "focus_chat", "Chat"),
+        Binding("p", "projects", "Projects"),
         Binding("h", "history", "History"),
         Binding("question_mark", "help", "Help"),
         Binding("ctrl+c,q", "quit", "Quit"),
@@ -101,23 +207,29 @@ class PlannerApp(App):
         self._log: RichLog | None = None
         self._input: ChatInput | None = None
         self._status: StatusBar | None = None
+        self._task_info: TaskInfoPanel | None = None
         self._busy = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         self._calendar = CalendarView(self.store)
         yield self._calendar
-        with Vertical(id="chat"):
-            self._log = RichLog(id="chat-log", markup=True, wrap=True, highlight=False)
-            self._log.can_focus = False
-            yield self._log
-            self._status = StatusBar()
-            yield self._status
-            self._input = ChatInput(
-                placeholder="Ask anything — 'add focus block tomorrow 9-11', 'plan my Tuesday'...",
-                id="chat-input",
-            )
-            yield self._input
+        with Horizontal(id="bottom-row"):
+            with Vertical(id="chat"):
+                self._log = RichLog(
+                    id="chat-log", markup=True, wrap=True, highlight=False
+                )
+                self._log.can_focus = False
+                yield self._log
+                self._status = StatusBar()
+                yield self._status
+                self._input = ChatInput(
+                    placeholder="Ask anything — 'add focus block tomorrow 9-11', 'plan my Tuesday'...",
+                    id="chat-input",
+                )
+                yield self._input
+            self._task_info = TaskInfoPanel(self.store)
+            yield self._task_info
         yield Footer()
 
     async def on_mount(self) -> None:
@@ -155,6 +267,22 @@ class PlannerApp(App):
         if self._calendar:
             self._calendar.set_mode("day")
 
+    def action_view_agenda(self) -> None:
+        if self._calendar:
+            self._calendar.set_mode("agenda")
+
+    def action_projects(self) -> None:
+        from planner.tasks_ui import ProjectsModal
+        assert self._log is not None and self._calendar is not None
+
+        def _refresh(_=None) -> None:
+            assert self._calendar is not None
+            self._calendar.refresh_view()
+            if self._task_info is not None:
+                self._task_info.refresh_panel()
+
+        self.push_screen(ProjectsModal(self.store), _refresh)
+
     def action_prev(self) -> None:
         if self._calendar:
             self._calendar.step(-1)
@@ -162,6 +290,14 @@ class PlannerApp(App):
     def action_next(self) -> None:
         if self._calendar:
             self._calendar.step(+1)
+
+    def action_next_day(self) -> None:
+        if self._calendar:
+            self._calendar.shift_anchor(+1)
+
+    def action_prev_day(self) -> None:
+        if self._calendar:
+            self._calendar.shift_anchor(-1)
 
     def action_today(self) -> None:
         if self._calendar:
@@ -202,6 +338,11 @@ class PlannerApp(App):
     # ---- chat -----------------------------------------------------------
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
+        # Only act on submissions from the chat input itself — inputs inside
+        # modals (e.g. the PromptModal for new tasks) bubble Input.Submitted
+        # up to here too and would otherwise get sent to the chat.
+        if event.input is not self._input:
+            return
         text = event.value.strip()
         if not text:
             return
@@ -257,6 +398,8 @@ class PlannerApp(App):
         finally:
             self._busy = False
             self._calendar.refresh_view()
+            if self._task_info is not None:
+                self._task_info.refresh_panel()
 
 
 def _short_json(obj: dict, limit: int = 80) -> str:

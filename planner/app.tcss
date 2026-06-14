@@ -8,8 +8,21 @@ Screen {
     padding: 0 1;
 }
 
-#chat {
+#bottom-row {
     height: 18;
+    layout: horizontal;
+}
+
+#chat {
+    width: 1fr;
+    height: 100%;
+    border: round $accent;
+    padding: 0 1;
+}
+
+#task-info {
+    width: 34;
+    height: 100%;
     border: round $accent;
     padding: 0 1;
 }
@@ -58,6 +71,72 @@ HistoryScreen {
 }
 
 #history-footer {
+    margin-top: 1;
+    text-align: right;
+}
+
+ProjectsModal {
+    align: center middle;
+}
+
+#projects-dialog {
+    width: 96;
+    max-width: 95%;
+    height: auto;
+    max-height: 90%;
+    border: round $accent;
+    background: $surface;
+    padding: 1 2;
+}
+
+#projects-header {
+    margin-bottom: 1;
+}
+
+#projects-list {
+    height: auto;
+    max-height: 24;
+}
+
+#projects-footer {
+    margin-top: 1;
+    text-align: right;
+}
+
+PromptModal {
+    align: center middle;
+}
+
+#prompt-dialog {
+    width: 70;
+    height: auto;
+    border: round $accent;
+    background: $surface;
+    padding: 1 2;
+}
+
+#prompt-title {
+    margin-bottom: 1;
+}
+
+#prompt-footer {
+    margin-top: 1;
+    text-align: right;
+}
+
+ConfirmModal {
+    align: center middle;
+}
+
+#confirm-dialog {
+    width: 70;
+    height: auto;
+    border: round $warning;
+    background: $surface;
+    padding: 1 2;
+}
+
+#confirm-footer {
     margin-top: 1;
     text-align: right;
 }

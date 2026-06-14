@@ -38,7 +38,7 @@ def _fmt_snapshot_row(s: SnapshotInfo, *, now: datetime) -> Text:
     line.append(s.label, style="bold")
     line.append("  ")
     line.append(
-        f"· {s.event_count} event{'s' if s.event_count != 1 else ''} · {human_bytes(s.size_bytes)}",
+        f"· {s.item_count} item{'s' if s.item_count != 1 else ''} · {human_bytes(s.size_bytes)}",
         style="dim",
     )
     return line
