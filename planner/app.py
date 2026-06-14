@@ -9,6 +9,7 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Input, RichLog, Static
 
 from planner.agent import PlannerAgent
+from planner.config import load_config, update_config
 from planner.db import EventStore, week_start
 from planner.history import HistoryScreen
 from planner.status import StatusBar, format_usage
@@ -189,6 +190,10 @@ class PlannerApp(App):
         Binding("ctrl+c,q", "quit", "Quit"),
     ]
 
+    def watch_theme(self, theme: str) -> None:
+        # Persist whenever the user picks a new theme from the command palette.
+        update_config(theme=theme)
+
     def check_action(
         self, action: str, parameters: tuple[object, ...]
     ) -> bool | None:
@@ -234,6 +239,11 @@ class PlannerApp(App):
 
     async def on_mount(self) -> None:
         assert self._log is not None
+        # Apply the saved theme before drawing anything.
+        cfg = load_config()
+        saved_theme = cfg.get("theme")
+        if saved_theme and saved_theme in self.available_themes:
+            self.theme = saved_theme
         # Don't auto-focus the chat input — leave focus null so app bindings
         # (incl. arrows) own all keys until the user explicitly presses `i`.
         self.set_focus(None)
