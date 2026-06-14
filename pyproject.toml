@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "planner"
+version = "0.1.0"
+description = "Full-screen TUI planner with a Claude-powered chat agent"
+requires-python = ">=3.11"
+dependencies = [
+    "textual>=0.85",
+    "claude-agent-sdk>=0.1.0",
+]
+
+[project.scripts]
+planner = "planner.__main__:run"
+
+[tool.setuptools.packages.find]
+include = ["planner*"]
+
+[tool.setuptools.package-data]
+planner = ["*.tcss"]

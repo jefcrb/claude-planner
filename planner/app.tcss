@@ -1,0 +1,63 @@
+Screen {
+    layout: vertical;
+}
+
+#calendar {
+    height: 1fr;
+    border: round $primary;
+    padding: 0 1;
+}
+
+#chat {
+    height: 18;
+    border: round $accent;
+    padding: 0 1;
+}
+
+#chat-log {
+    height: 1fr;
+    background: $surface;
+}
+
+#status-bar {
+    height: 1;
+    padding: 0 1;
+    color: $accent;
+    background: $surface-darken-1;
+}
+
+#chat-input {
+    dock: bottom;
+}
+
+.busy {
+    color: $warning;
+}
+
+HistoryScreen {
+    align: center middle;
+}
+
+#history-dialog {
+    width: 90;
+    max-width: 95%;
+    height: auto;
+    max-height: 80%;
+    border: round $accent;
+    background: $surface;
+    padding: 1 2;
+}
+
+#history-header {
+    margin-bottom: 1;
+}
+
+#history-list {
+    height: auto;
+    max-height: 18;
+}
+
+#history-footer {
+    margin-top: 1;
+    text-align: right;
+}
